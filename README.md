@@ -77,3 +77,35 @@ Example:
 ```bash
 511_TOKEN=your_token npm run dashboard:loop
 ```
+
+## Synology NAS
+
+The recommended Synology setup is Docker through Container Manager. This keeps
+Node, Sharp, and their native dependencies inside the container.
+
+1. Clone the GitHub repo onto the NAS.
+2. Copy `.env.example` to `.env` and set `TUNESHINE_HOST`, transit tokens, and timing.
+3. Put gallery images in `gallery/`.
+4. Start the service:
+
+```bash
+docker compose up -d --build
+```
+
+View logs:
+
+```bash
+docker compose logs -f
+```
+
+Stop it:
+
+```bash
+docker compose down
+```
+
+The compose file mounts:
+
+- `./gallery` read-only into the container.
+- `./.cache` for weather/gallery rotation state.
+- `./slides` for generated WebPs.

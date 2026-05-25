@@ -1,0 +1,11 @@
+services:
+  tuneshine-dashboard:
+    build: .
+    container_name: tuneshine-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./gallery:/app/gallery:ro
+      - ./.cache:/app/.cache
+      - ./slides:/app/slides

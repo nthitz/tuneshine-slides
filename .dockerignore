@@ -1,0 +1,9 @@
+.cache/
+.DS_Store
+.env
+.git/
+gallery/*
+node_modules/
+slides/*.webp
+nick-loves-jenn.webp
+npm-debug.log*
