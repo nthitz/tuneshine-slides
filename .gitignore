@@ -1,0 +1,6 @@
+.cache/
+.env
+node_modules/
+slides/*.webp
+gallery/*
+!gallery/.gitkeep
