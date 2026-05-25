@@ -66,6 +66,7 @@ cp .env.example .env
 - `GALLERY_DIR`: optional folder of images for the gallery slide. Images are center-cropped to square and resized to 64x64.
 - `UPLOAD_DELAY_SECONDS`: extra animation cushion rendered into each WebP. Defaults to `0.5`.
 - `LOOP_PROOF_DELAY_SECONDS`: extra cushion for slides that set `loopProof: true`. Defaults to `5`.
+- `DEV_MODE`: set to `true` to upload with `overridable: false`, useful for testing while music is playing. On exit, dev mode sends `DELETE /image` to remove the local image.
 - `511_TOKEN`: preferred token for live AC Transit predictions via 511 StopMonitoring.
 - `ACTRANSIT_TOKEN`: fallback token for the AC Transit direct API. Without either bus token, the bus slide renders a token reminder.
 

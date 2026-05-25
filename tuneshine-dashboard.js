@@ -20,6 +20,11 @@ const term = terminalKit.terminal;
 const ANSI_RESET = "\x1b[0m";
 let tuiActive = false;
 let tuiRestored = false;
+let shutdownStarted = false;
+
+function parseBoolean(value) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").toLowerCase());
+}
 
 function parseArgs(args) {
   const options = {
@@ -29,6 +34,7 @@ function parseArgs(args) {
     uploadDelay: Number(process.env.UPLOAD_DELAY_SECONDS ?? DEFAULT_UPLOAD_DELAY_SECONDS),
     loopProofDelay: Number(process.env.LOOP_PROOF_DELAY_SECONDS ?? DEFAULT_LOOP_PROOF_SECONDS),
     galleryDir: process.env.GALLERY_DIR,
+    devMode: parseBoolean(process.env.DEV_MODE),
     host: process.env.TUNESHINE_HOST ?? DEFAULT_TUNESHINE_HOST
   };
 
@@ -49,6 +55,8 @@ function parseArgs(args) {
     } else if (arg === "--gallery-dir") {
       options.galleryDir = args[index + 1];
       index += 1;
+    } else if (arg === "--dev-mode") {
+      options.devMode = true;
     } else if (arg === "--host") {
       options.host = args[index + 1];
       index += 1;
@@ -98,6 +106,7 @@ Options:
                      Extra animation seconds for slides that opt into loop-proof rendering (default: ${DEFAULT_LOOP_PROOF_SECONDS})
       --gallery-dir <path>
                      Folder of images for the optional gallery slide
+      --dev-mode     Upload images with overridable=false for testing over music
       --host <host>  Tuneshine host or IP (default: ${DEFAULT_TUNESHINE_HOST})
 
 Environment:
@@ -111,6 +120,7 @@ Environment:
   LOOP_PROOF_DELAY_SECONDS
                      Extra animation seconds for slides that opt into loop-proof rendering
   GALLERY_DIR        Folder of images for the optional gallery slide
+  DEV_MODE           Set to true/1/yes/on to upload images with overridable=false
   TUNESHINE_HOST     Default Tuneshine host or IP
 `);
 }
@@ -184,14 +194,23 @@ async function buildSlides(options) {
       durationSeconds,
       renderedSeconds,
       uploadDelay,
-      dataIssues: issues
+      dataIssues: issues,
+      options
     });
   }
 
   return rendered;
 }
 
-async function uploadSlide(host, renderedSlide) {
+function uploadMetadata(renderedSlide, options) {
+  return {
+    ...renderedSlide.slide.metadata,
+    idle: true,
+    overridable: !options.devMode
+  };
+}
+
+async function uploadSlide(host, renderedSlide, options) {
   const file = await readFile(renderedSlide.path);
   const form = new FormData();
   form.append(
@@ -201,11 +220,7 @@ async function uploadSlide(host, renderedSlide) {
   );
   form.append(
     "metadata",
-    JSON.stringify({
-      ...renderedSlide.slide.metadata,
-      idle: true,
-      overridable: true
-    })
+    JSON.stringify(uploadMetadata(renderedSlide, options))
   );
 
   const response = await fetch(`http://${host}/image`, {
@@ -218,6 +233,33 @@ async function uploadSlide(host, renderedSlide) {
   }
 
   return response.json();
+}
+
+async function removeLocalImage(host) {
+  const response = await fetch(`http://${host}/image`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Remove image failed: ${response.status}`);
+  }
+}
+
+async function cleanupDevImage(options) {
+  if (!options.devMode) return;
+
+  try {
+    await removeLocalImage(options.host);
+    if (!process.stdout.isTTY) {
+      console.log("Removed dev-mode image");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (process.stdout.isTTY) {
+      restoreTui();
+    }
+    console.error(`Failed to remove dev-mode image: ${message}`);
+  }
 }
 
 function sleep(ms) {
@@ -313,6 +355,7 @@ function renderTui(rendered, index, remainingSeconds, status, cycle) {
     `${label}: ${current.slide.title} -> ${next.slide.title}`,
     `Status: ${status}`,
     issueLine,
+    `Metadata: idle=true  overridable=${!current.options.devMode}`,
     `Cadence: ${current.durationSeconds}s  WebP: ${current.renderedSeconds.toFixed(1)}s`,
     `Timer: ${String(Math.ceil(remainingSeconds)).padStart(2, " ")}s  ${progressBar(
       remainingSeconds,
@@ -345,7 +388,25 @@ async function waitForSlide(rendered, index, cycle) {
   }
 }
 
-function setupTui() {
+async function shutdown(options, exitCode = 0) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  restoreTui();
+  await cleanupDevImage(options);
+  process.exit(exitCode);
+}
+
+function setupShutdownHandlers(options) {
+  process.once("SIGINT", () => {
+    shutdown(options, 130);
+  });
+  process.once("SIGTERM", () => {
+    shutdown(options, 143);
+  });
+  process.once("exit", restoreTui);
+}
+
+function setupTui(options) {
   if (!process.stdout.isTTY) return;
 
   tuiActive = true;
@@ -355,15 +416,8 @@ function setupTui() {
 
   term.on("key", (name) => {
     if (name === "CTRL_C" || name === "q" || name === "Q") {
-      restoreTui();
-      process.exit(130);
+      shutdown(options, 130);
     }
-  });
-
-  process.once("exit", restoreTui);
-  process.once("SIGINT", () => {
-    restoreTui();
-    process.exit(130);
   });
 }
 
@@ -384,7 +438,7 @@ async function runOnce(options, cycle = 1) {
   for (let index = 0; index < slides.length; index += 1) {
     const renderedSlide = slides[index];
     renderTui(slides, index, renderedSlide.durationSeconds, "Uploading", cycle);
-    await uploadSlide(options.host, renderedSlide);
+    await uploadSlide(options.host, renderedSlide, options);
     if (!process.stdout.isTTY) {
       console.log(`Uploaded ${renderedSlide.slide.id}`);
     }
@@ -400,22 +454,38 @@ async function runLoop(options) {
   }
 }
 
-const options = parseArgs(process.argv.slice(2));
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
 
-if (options.command === "build") {
-  const rendered = await buildSlides(options);
-  for (const item of rendered) {
-    const delay = Array.isArray(item.delay) ? item.delay.join(",") : "static";
-    console.log(
-      `${item.path}: ${item.durationSeconds}s cadence, ${item.renderedSeconds.toFixed(
-        1
-      )}s webp, ${item.pages} frames, ${delay} ms, ${item.bytes} bytes`
-    );
+  if (options.command === "build") {
+    const rendered = await buildSlides(options);
+    for (const item of rendered) {
+      const delay = Array.isArray(item.delay) ? item.delay.join(",") : "static";
+      console.log(
+        `${item.path}: ${item.durationSeconds}s cadence, ${item.renderedSeconds.toFixed(
+          1
+        )}s webp, ${item.pages} frames, ${delay} ms, ${item.bytes} bytes`
+      );
+    }
+    return;
   }
-} else if (options.command === "once") {
-  setupTui();
-  await runOnce(options);
-} else {
-  setupTui();
-  await runLoop(options);
+
+  setupShutdownHandlers(options);
+  setupTui(options);
+
+  try {
+    if (options.command === "once") {
+      await runOnce(options);
+      await cleanupDevImage(options);
+      restoreTui();
+    } else {
+      await runLoop(options);
+    }
+  } catch (error) {
+    restoreTui();
+    await cleanupDevImage(options);
+    throw error;
+  }
 }
+
+await main();
