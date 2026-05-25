@@ -60,7 +60,7 @@ You can put these in a local `.env` file. Start from the example:
 cp .env.example .env
 ```
 
-- `TUNESHINE_HOST`: Tuneshine IP or hostname. Defaults to `192.168.4.76`.
+- `TUNESHINE_HOST`: Tuneshine IP or hostname.
 - `SLIDE_SECONDS`: default duration for normal slides.
 - `DVD_SLIDE_SECONDS`: duration for the DVD slide.
 - `GALLERY_DIR`: optional folder of images for the gallery slide. Images are center-cropped to square and resized to 64x64.
@@ -87,7 +87,13 @@ Node, Sharp, and their native dependencies inside the container.
 1. Clone the GitHub repo onto the NAS.
 2. Copy `.env.example` to `.env` and set `TUNESHINE_HOST`, transit tokens, and timing.
 3. Put gallery images in `gallery/`.
-4. Start the service:
+4. Make sure runtime mount directories exist:
+
+```bash
+mkdir -p .cache slides gallery
+```
+
+5. Start the service:
 
 ```bash
 docker compose up -d --build
@@ -110,3 +116,9 @@ The compose file mounts:
 - `./gallery` read-only into the container.
 - `./.cache` for weather/gallery rotation state.
 - `./slides` for generated WebPs.
+
+On this Synology, old SCP mode works for copying gallery images:
+
+```bash
+scp -O -P <ssh-port> -r gallery/. <user>@<nas-host>:~/tuneshine-slides/gallery/
+```

@@ -1,4 +1,6 @@
 .cache/
+!.cache/
+!.cache/.gitkeep
 .env
 node_modules/
 slides/*.webp
