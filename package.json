@@ -8,10 +8,16 @@
     "build:love-webp": "node generate-love-webp.js",
     "dashboard:build": "node tuneshine-dashboard.js build",
     "dashboard:once": "node tuneshine-dashboard.js once",
-    "dashboard:loop": "node tuneshine-dashboard.js loop"
+    "dashboard:loop": "node tuneshine-dashboard.js loop",
+    "docker:start": "sh scripts/docker-start.sh",
+    "docker:logs": "docker compose logs -f",
+    "docker:stop": "docker compose down",
+    "docker:update": "sh scripts/update.sh"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.4",
     "dotenv": "^17.4.2",
+    "hono": "^4.12.23",
     "multicast-dns": "^7.2.5",
     "sharp": "^0.34.5",
     "terminal-kit": "^3.1.2"

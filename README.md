@@ -30,6 +30,12 @@ Run continuously:
 npm run dashboard:loop
 ```
 
+When `dashboard:once` or `dashboard:loop` is running, a web status/control UI is
+available by default on port `3000`. It shows the current slide, next slide,
+timer, metadata mode, API errors, and includes an enable/disable button. When
+disabled, the process stays alive but stops uploading slides and removes the
+current local Tuneshine image.
+
 When run in a terminal, `dashboard:once` and `dashboard:loop` show a `terminal-kit`
 fullscreen TUI with the current slide, next slide, countdown, progress bar, and
 a decoded WebP preview. Press `q` or `Ctrl+C` to stop. When output is redirected,
@@ -67,7 +73,10 @@ cp .env.example .env
 - `UPLOAD_DELAY_SECONDS`: extra animation cushion rendered into each WebP. Defaults to `0.5`.
 - `LOOP_PROOF_DELAY_SECONDS`: extra cushion for slides that set `loopProof: true`. Defaults to `5`.
 - `DEV_MODE`: set to `true` to upload with `overridable: false`, useful for testing while music is playing. On exit, dev mode sends `DELETE /image` to remove the local image.
-- `511_TOKEN`: preferred token for live AC Transit predictions via 511 StopMonitoring.
+- `WEB_PORT`: web status/control UI port. Defaults to `3000`.
+- `WEB_DISABLED`: set to `true` to disable the web UI.
+- `DASHBOARD_DISABLED`: set to `true` to start with uploads disabled until enabled from the web UI.
+- `TOKEN_511`: preferred token for live AC Transit predictions via 511 StopMonitoring. `511_TOKEN` is also supported for existing `.env` files.
 - `ACTRANSIT_TOKEN`: fallback token for the AC Transit direct API. Without either bus token, the bus slide renders a token reminder.
 
 Weather data is cached in `.cache/weather.json` for 10 minutes to avoid polling
@@ -76,7 +85,7 @@ Open-Meteo on every dashboard loop.
 Example:
 
 ```bash
-511_TOKEN=your_token npm run dashboard:loop
+TOKEN_511=your_token npm run dashboard:loop
 ```
 
 ## Synology NAS
@@ -105,6 +114,12 @@ View logs:
 docker compose logs -f
 ```
 
+Update after pushing new code:
+
+```bash
+./scripts/update.sh
+```
+
 Stop it:
 
 ```bash
@@ -116,6 +131,12 @@ The compose file mounts:
 - `./gallery` read-only into the container.
 - `./.cache` for weather/gallery rotation state.
 - `./slides` for generated WebPs.
+
+The compose file publishes the web UI on `WEB_PORT`, defaulting to:
+
+```text
+http://<nas-host>:3000
+```
 
 On this Synology, old SCP mode works for copying gallery images:
 

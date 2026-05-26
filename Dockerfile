@@ -9,4 +9,4 @@ RUN npm ci --omit=dev
 
 COPY . .
 
-CMD ["npm", "run", "dashboard:loop"]
+CMD ["node", "tuneshine-dashboard.js", "loop"]
