@@ -21,7 +21,20 @@ fi
 mkdir -p .cache slides gallery
 
 echo "Pulling latest code..."
-git pull --ff-only
+current_branch="$(git branch --show-current)"
+if [ -z "$current_branch" ]; then
+  echo "Cannot update while git is in detached HEAD state." >&2
+  exit 1
+fi
+
+if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
+  git pull --ff-only
+else
+  remote="${UPDATE_REMOTE:-origin}"
+  echo "No upstream configured for $current_branch; pulling from $remote/$current_branch..."
+  git fetch "$remote" "$current_branch"
+  git merge --ff-only FETCH_HEAD
+fi
 
 echo "Rebuilding and recreating Docker service..."
 if docker compose version >/dev/null 2>&1; then
