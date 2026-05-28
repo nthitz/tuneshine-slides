@@ -1,5 +1,5 @@
 import { palette } from "../../lib/constants.js";
-import { drawCenteredText, drawText } from "../../lib/font.js";
+import { drawCenteredText, drawText, textWidth } from "../../lib/font.js";
 import { drawBackground } from "../../lib/rendering.js";
 
 function drawBusIcon(canvas, x, y) {
@@ -13,10 +13,28 @@ function drawBusIcon(canvas, x, y) {
   canvas.rect(x + 12, y + 13, 3, 2, palette.black);
 }
 
-function routeLine(route) {
-  const times =
-    route.minutes.length > 0 ? route.minutes.map((minutes) => `${minutes}M`).join(",") : "--";
-  return `${route.route}: ${times}`;
+function drawRouteLine(canvas, route, x, y) {
+  const label = `${route.route}: `;
+  let cursorX = x;
+  drawText(canvas, label, cursorX, y, palette.text, 1);
+  cursorX += textWidth(label);
+
+  if (route.minutes.length === 0) {
+    drawText(canvas, "--", cursorX, y, palette.text, 1);
+    return;
+  }
+
+  route.minutes.forEach((minutes, index) => {
+    const text = `${minutes}M`;
+    const color = minutes <= 10 ? palette.red : palette.text;
+    drawText(canvas, text, cursorX, y, color, 1);
+    cursorX += textWidth(text);
+
+    if (index < route.minutes.length - 1) {
+      drawText(canvas, " , ", cursorX, y, palette.text, 1);
+      cursorX += textWidth(" , ");
+    }
+  });
 }
 
 export default {
@@ -55,8 +73,7 @@ export default {
 
     routes.forEach((route, index) => {
       const y = 32 + index * 13;
-      const color = route.minutes.some((minutes) => minutes <= 5) ? palette.red : palette.text;
-      drawText(canvas, routeLine(route), 4, y, color, 1);
+      drawRouteLine(canvas, route, 2, y);
     });
   }
 };
