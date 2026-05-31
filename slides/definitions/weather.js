@@ -82,24 +82,31 @@ function wrapMiniText(text, maxWidth, maxLines = 2) {
   return lines;
 }
 
-function drawDegree(canvas, x, y, color) {
-  canvas.pixel(x + 1, y, color);
-  canvas.pixel(x, y + 1, color);
-  canvas.pixel(x + 2, y + 1, color);
-  canvas.pixel(x + 1, y + 2, color);
+function drawDegree(canvas, x, y, color, scale = 1) {
+  canvas.rect(x + scale, y, scale, scale, color);
+  canvas.rect(x, y + scale, scale, scale, color);
+  canvas.rect(x + scale * 2, y + scale, scale, scale, color);
+  canvas.rect(x + scale, y + scale * 2, scale, scale, color);
 }
 
 function drawWeatherText(canvas, weather) {
   const temperature = String(weather.temp);
   const temperatureX = 5;
-  const conditionX = 28;
+  const temperatureScale = temperature.length > 2 ? 1 : 2;
+  const conditionX = temperatureScale === 2 ? 36 : 28;
 
-  drawText(canvas, temperature, temperatureX, 48, palette.text, 1);
-  drawDegree(canvas, temperatureX + textWidth(temperature) + 1, 48, palette.muted);
+  drawText(canvas, temperature, temperatureX, 43, palette.text, temperatureScale);
+  drawDegree(
+    canvas,
+    temperatureX + textWidth(temperature, temperatureScale) + 1,
+    43,
+    palette.muted,
+    temperatureScale
+  );
 
   const lines = wrapMiniText(weather.label, 64 - conditionX - 2);
   lines.forEach((line, index) => {
-    drawMiniText(canvas, line, conditionX, 46 + index * 7, palette.yellow);
+    drawMiniText(canvas, line, conditionX, 42 + index * 7, palette.yellow);
   });
 }
 
@@ -133,8 +140,8 @@ function drawCloud(canvas, x, y, color = palette.muted) {
 }
 
 function drawFog(canvas, tick) {
-  drawCloud(canvas, 15, 11, palette.muted);
-  for (let y = 34; y <= 46; y += 6) {
+  drawCloud(canvas, 15, 8, palette.muted);
+  for (let y = 31; y <= 43; y += 6) {
     const offset = (tick + y) % 4;
     canvas.line(12 + offset, y, 31 + offset, y, palette.muted);
     canvas.line(36 - offset, y, 52 - offset, y, palette.muted);
@@ -142,17 +149,17 @@ function drawFog(canvas, tick) {
 }
 
 function drawRain(canvas, tick, color = palette.cyan) {
-  drawCloud(canvas, 15, 14, palette.muted);
+  drawCloud(canvas, 15, 11, palette.muted);
   for (let x = 20; x <= 42; x += 7) {
-    const y = 35 + ((tick + x) % 3);
+    const y = 32 + ((tick + x) % 3);
     canvas.line(x, y, x - 2, y + 5, color);
   }
 }
 
 function drawDrizzle(canvas, tick) {
-  drawCloud(canvas, 15, 14, palette.muted);
+  drawCloud(canvas, 15, 11, palette.muted);
   for (let x = 22; x <= 40; x += 9) {
-    const y = 36 + ((tick + x) % 2);
+    const y = 33 + ((tick + x) % 2);
     canvas.pixel(x, y, palette.cyan);
     canvas.pixel(x - 1, y + 3, palette.cyan);
   }
@@ -160,23 +167,23 @@ function drawDrizzle(canvas, tick) {
 
 function drawIceRain(canvas, tick) {
   drawRain(canvas, tick, palette.white);
-  canvas.pixel(47, 39, palette.cyan);
-  canvas.pixel(46, 40, palette.cyan);
-  canvas.pixel(48, 40, palette.cyan);
-  canvas.pixel(47, 41, palette.cyan);
+  canvas.pixel(47, 36, palette.cyan);
+  canvas.pixel(46, 37, palette.cyan);
+  canvas.pixel(48, 37, palette.cyan);
+  canvas.pixel(47, 38, palette.cyan);
 }
 
 function drawStorm(canvas) {
-  drawCloud(canvas, 15, 14, palette.muted);
-  canvas.line(31, 32, 25, 43, palette.yellow);
-  canvas.line(25, 43, 34, 39, palette.yellow);
-  canvas.line(34, 39, 29, 50, palette.yellow);
+  drawCloud(canvas, 15, 11, palette.muted);
+  canvas.line(31, 29, 25, 40, palette.yellow);
+  canvas.line(25, 40, 34, 36, palette.yellow);
+  canvas.line(34, 36, 29, 47, palette.yellow);
 }
 
 function drawSnow(canvas, tick) {
-  drawCloud(canvas, 15, 14, palette.muted);
+  drawCloud(canvas, 15, 11, palette.muted);
   for (let x = 21; x <= 43; x += 11) {
-    const y = 38 + ((tick + x) % 4);
+    const y = 35 + ((tick + x) % 4);
     canvas.pixel(x, y, palette.white);
     canvas.pixel(x - 1, y, palette.white);
     canvas.pixel(x + 1, y, palette.white);
@@ -186,39 +193,39 @@ function drawSnow(canvas, tick) {
 }
 
 function drawWind(canvas, tick) {
-  for (let y = 17; y <= 41; y += 10) {
+  for (let y = 14; y <= 38; y += 10) {
     const offset = (tick + y) % 5;
     canvas.line(11 + offset, y, 43 + offset, y, palette.cyan);
     canvas.line(43 + offset, y, 50 + offset, y - 4, palette.cyan);
   }
-  drawCloud(canvas, 18, 22, palette.muted);
+  drawCloud(canvas, 18, 19, palette.muted);
 }
 
 function drawUnknown(canvas) {
-  drawCenteredText(canvas, "?", 20, palette.yellow, 2);
+  drawCenteredText(canvas, "?", 17, palette.yellow, 2);
 }
 
 function drawWeatherIcon(canvas, icon, tick) {
   if (icon === "sun") {
-    drawSun(canvas, 32, 22, tick);
+    drawSun(canvas, 32, 19, tick);
     return;
   }
   if (icon === "moon") {
-    drawMoon(canvas, 32, 22);
+    drawMoon(canvas, 32, 19);
     return;
   }
   if (icon === "partly-cloudy-day") {
-    drawSun(canvas, 24, 18, tick);
-    drawCloud(canvas, 18, 25, palette.muted);
+    drawSun(canvas, 24, 15, tick);
+    drawCloud(canvas, 18, 22, palette.muted);
     return;
   }
   if (icon === "partly-cloudy-night") {
-    drawMoon(canvas, 24, 18);
-    drawCloud(canvas, 18, 25, palette.muted);
+    drawMoon(canvas, 24, 15);
+    drawCloud(canvas, 18, 22, palette.muted);
     return;
   }
   if (icon === "cloud") {
-    drawCloud(canvas, 15, 18, palette.muted);
+    drawCloud(canvas, 15, 15, palette.muted);
     return;
   }
   if (icon === "fog") {
