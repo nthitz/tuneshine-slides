@@ -60,7 +60,8 @@ function drawDigitalColon(canvas, x, y, color) {
 }
 
 function drawDigitalTime(canvas, time, y, color) {
-  let cursorX = Math.floor((canvas.width - digitalTimeWidth(time)) / 2);
+  // The time reads visually better nudged left from the mathematical center.
+  let cursorX = Math.floor((canvas.width - digitalTimeWidth(time)) / 2) - 2;
   for (const character of time) {
     if (character === ":") {
       drawDigitalColon(canvas, cursorX, y, color);
