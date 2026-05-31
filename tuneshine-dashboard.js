@@ -21,6 +21,7 @@ import { slideRegistry } from "./slides/definitions/index.js";
 const term = terminalKit.terminal;
 const ANSI_RESET = "\x1b[0m";
 const CLEANUP_FETCH_TIMEOUT_MS = 4 * 1000;
+const TUNESHINE_FETCH_TIMEOUT_MS = 4 * 1000;
 let tuiActive = false;
 let tuiRestored = false;
 let shutdownStarted = false;
@@ -36,6 +37,7 @@ const appState = {
   issues: [],
   lastUploadAt: null,
   lastError: null,
+  brightness: null,
   requestedSlideId: null,
   slides: []
 };
@@ -289,6 +291,53 @@ async function removeLocalImage(host) {
   }
 }
 
+function normalizeBrightness(value) {
+  const brightness = Number(value);
+  if (!Number.isInteger(brightness) || brightness < 1 || brightness > 100) {
+    throw new Error("Brightness must be an integer between 1 and 100");
+  }
+  return brightness;
+}
+
+async function fetchDeviceBrightness(host) {
+  const response = await fetch(`http://${host}/state`, {
+    signal: AbortSignal.timeout(TUNESHINE_FETCH_TIMEOUT_MS)
+  });
+
+  if (!response.ok) {
+    throw new Error(`State request failed: ${response.status}`);
+  }
+
+  const state = await response.json();
+  const brightness = state.config?.brightness;
+  if (!brightness || !Number.isFinite(brightness.active) || !Number.isFinite(brightness.idle)) {
+    throw new Error("Device state did not include brightness");
+  }
+
+  appState.brightness = {
+    active: brightness.active,
+    idle: brightness.idle
+  };
+  return appState.brightness;
+}
+
+async function setDeviceBrightness(host, brightness) {
+  const value = normalizeBrightness(brightness);
+  const response = await fetch(`http://${host}/brightness`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ active: value, idle: value }),
+    signal: AbortSignal.timeout(TUNESHINE_FETCH_TIMEOUT_MS)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Brightness update failed: ${response.status}`);
+  }
+
+  appState.brightness = { active: value, idle: value };
+  return appState.brightness;
+}
+
 async function cleanupDevImage(options) {
   if (!options.devMode) return;
 
@@ -350,6 +399,9 @@ function webPage() {
     .preview { image-rendering: pixelated; width: 256px; height: 256px; border: 1px solid #222a3c; background: #05060d; }
     .row { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; }
     .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .slider { display: grid; gap: 6px; min-width: 220px; }
+    .slider-row { display: flex; align-items: center; gap: 10px; }
+    input[type="range"] { width: 180px; accent-color: #5fe88b; }
     .issues { color: #ffdd5c; }
     pre { margin: 0; white-space: pre-wrap; color: #91a0b9; }
   </style>
@@ -376,6 +428,13 @@ function webPage() {
       <div class="controls">
         <button id="nextSlide">Next Slide</button>
         <select id="slideSelect" aria-label="Slide"></select>
+        <div class="slider">
+          <div class="label">Brightness</div>
+          <div class="slider-row">
+            <input id="brightness" type="range" min="1" max="100" disabled>
+            <span id="brightnessValue" class="value">-</span>
+          </div>
+        </div>
       </div>
     </section>
     <section>
@@ -411,6 +470,36 @@ function webPage() {
       await refresh();
     }
 
+    async function loadBrightness() {
+      const input = document.getElementById('brightness');
+      const value = document.getElementById('brightnessValue');
+      try {
+        const response = await fetch('/api/brightness', { cache: 'no-store' });
+        const brightness = await response.json();
+        if (!response.ok) throw new Error(brightness.error ?? 'Brightness unavailable');
+        const current = brightness.idle ?? brightness.active;
+        if (document.activeElement !== input) {
+          input.value = current;
+        }
+        input.disabled = false;
+        value.textContent = current + '%';
+      } catch (error) {
+        input.disabled = true;
+        value.textContent = '-';
+      }
+    }
+
+    async function setBrightness(brightness) {
+      const value = document.getElementById('brightnessValue');
+      value.textContent = brightness + '%';
+      await fetch('/api/brightness', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ brightness: Number(brightness) })
+      });
+      await loadBrightness();
+    }
+
     function renderSlideOptions(status) {
       const select = document.getElementById('slideSelect');
       const slidesKey = status.slides.map((slide) => slide.id + ':' + slide.title).join('|');
@@ -442,6 +531,11 @@ function webPage() {
       const nextButton = document.getElementById('nextSlide');
       nextButton.disabled = !status.enabled || !status.current || !status.slides.length;
       nextButton.onclick = nextSlide;
+      const brightness = document.getElementById('brightness');
+      brightness.oninput = () => {
+        document.getElementById('brightnessValue').textContent = brightness.value + '%';
+      };
+      brightness.onchange = () => setBrightness(brightness.value);
       renderSlideOptions(status);
       document.getElementById('phase').textContent = status.phase;
       document.getElementById('current').textContent = status.current?.title ?? '-';
@@ -462,7 +556,9 @@ function webPage() {
     }
 
     refresh();
+    loadBrightness();
     setInterval(refresh, 1000);
+    setInterval(loadBrightness, 30000);
   </script>
 </body>
 </html>`;
@@ -481,6 +577,17 @@ function startWebServer(options) {
   app.get("/", (context) => context.html(webPage()));
 
   app.get("/api/status", (context) => context.json(statusPayload(options)));
+
+  app.get("/api/brightness", async (context) => {
+    const brightness = await fetchDeviceBrightness(options.host);
+    return context.json(brightness);
+  });
+
+  app.post("/api/brightness", async (context) => {
+    const body = await context.req.json().catch(() => ({}));
+    const brightness = await setDeviceBrightness(options.host, body.brightness);
+    return context.json(brightness);
+  });
 
   app.post("/api/enabled", async (context) => {
     const body = await context.req.json().catch(() => ({}));
