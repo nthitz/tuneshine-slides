@@ -82,6 +82,43 @@ cp .env.example .env
 Weather data is cached in `.cache/weather.json` for 10 minutes to avoid polling
 Open-Meteo on every dashboard loop.
 
+## Plex Override
+
+Plex support is opt-in. When enabled, the dashboard polls the configured Plex
+servers. If the configured Plex user is actively playing media, the normal
+dashboard loop pauses and the Tuneshine displays artwork for the Plex item.
+When playback stops, the regular dashboard loop resumes.
+
+For TV episodes, the dashboard prefers show-level poster art
+(`grandparentThumb`) before falling back to season art or episode thumbnails.
+
+Discover server env values from a Plex account token:
+
+```bash
+PLEX_TOKEN=your_account_token npm run plex:discover
+```
+
+Inspect active sessions and artwork fields using your `.env`:
+
+```bash
+npm run plex:sessions
+```
+
+Example Plex config:
+
+```env
+PLEX_ENABLED=true
+PLEX_POLL_SECONDS=5
+PLEX_USERNAME=your_plex_username
+PLEX_SERVERS=LOCAL,CLOUD
+PLEX_LOCAL_NAME=Local Plex
+PLEX_LOCAL_URL=http://192.168.1.20:32400
+PLEX_LOCAL_TOKEN=your_local_server_token
+PLEX_CLOUD_NAME=Cloud Plex
+PLEX_CLOUD_URL=https://cloud-plex.example.com:32400
+PLEX_CLOUD_TOKEN=your_cloud_server_token
+```
+
 Example:
 
 ```bash

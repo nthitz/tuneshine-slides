@@ -12,7 +12,9 @@
     "docker:start": "sh scripts/docker-start.sh",
     "docker:logs": "docker compose logs -f",
     "docker:stop": "sh scripts/docker-stop.sh",
-    "docker:update": "sh scripts/update.sh"
+    "docker:update": "sh scripts/update.sh",
+    "plex:discover": "node scripts/plex-discover.js",
+    "plex:sessions": "node scripts/plex-sessions.js"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.4",

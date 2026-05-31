@@ -15,6 +15,7 @@ import {
   DEFAULT_TUNESHINE_HOST
 } from "./lib/constants.js";
 import { getSlideData } from "./lib/data.js";
+import { findPlexPlayback, getPlexConfig, plexMetadata, renderPlexArtwork } from "./lib/plex.js";
 import { renderSlide } from "./lib/rendering.js";
 import { slideRegistry } from "./slides/definitions/index.js";
 
@@ -38,6 +39,14 @@ const appState = {
   lastUploadAt: null,
   lastError: null,
   brightness: null,
+  plex: {
+    enabled: false,
+    active: false,
+    title: null,
+    server: null,
+    player: null,
+    lastError: null
+  },
   requestedSlideId: null,
   slides: []
 };
@@ -255,18 +264,11 @@ function uploadMetadata(renderedSlide, options) {
   };
 }
 
-async function uploadSlide(host, renderedSlide, options) {
-  const file = await readFile(renderedSlide.path);
+async function uploadImage(host, imagePath, metadata) {
+  const file = await readFile(imagePath);
   const form = new FormData();
-  form.append(
-    "image",
-    new Blob([file], { type: "image/webp" }),
-    path.basename(renderedSlide.path)
-  );
-  form.append(
-    "metadata",
-    JSON.stringify(uploadMetadata(renderedSlide, options))
-  );
+  form.append("image", new Blob([file], { type: "image/webp" }), path.basename(imagePath));
+  form.append("metadata", JSON.stringify(metadata));
 
   const response = await fetch(`http://${host}/image`, {
     method: "POST",
@@ -274,10 +276,14 @@ async function uploadSlide(host, renderedSlide, options) {
   });
 
   if (!response.ok) {
-    throw new Error(`Upload failed for ${renderedSlide.slide.id}: ${response.status}`);
+    throw new Error(`Upload failed: ${response.status}`);
   }
 
   return response.json();
+}
+
+async function uploadSlide(host, renderedSlide, options) {
+  return uploadImage(host, renderedSlide.path, uploadMetadata(renderedSlide, options));
 }
 
 async function removeLocalImage(host) {
@@ -370,6 +376,28 @@ function statusPayload(options) {
   };
 }
 
+function plexStatusFromMatch(match) {
+  return {
+    enabled: true,
+    active: true,
+    title: match.title,
+    server: match.server.name,
+    player: match.player.title ?? null,
+    lastError: null
+  };
+}
+
+function inactivePlexStatus(enabled, lastError = null) {
+  return {
+    enabled,
+    active: false,
+    title: null,
+    server: null,
+    player: null,
+    lastError
+  };
+}
+
 function webUiAddress(options) {
   return options.webEnabled ? `http://localhost:${options.webPort}` : "disabled";
 }
@@ -421,6 +449,7 @@ function webPage() {
         <div><div class="label">Timer</div><div id="timer" class="value"></div></div>
         <div><div class="label">Cycle</div><div id="cycle" class="value"></div></div>
         <div><div class="label">Metadata</div><div id="metadata" class="value"></div></div>
+        <div><div class="label">Plex</div><div id="plex" class="value"></div></div>
       </div>
     </section>
     <section>
@@ -543,6 +572,9 @@ function webPage() {
       document.getElementById('timer').textContent = status.remainingSeconds == null ? '-' : Math.ceil(status.remainingSeconds) + 's';
       document.getElementById('cycle').textContent = status.cycle;
       document.getElementById('metadata').textContent = 'idle=' + status.metadata.idle + ' overridable=' + status.metadata.overridable;
+      document.getElementById('plex').textContent = status.plex.active
+        ? status.plex.title + ' (' + status.plex.server + ')'
+        : (status.plex.enabled ? 'Watching' : 'Disabled');
       document.getElementById('issues').textContent = status.lastError ?? (status.issues.length ? status.issues.join(' | ') : 'OK');
       document.getElementById('raw').textContent = JSON.stringify(status, null, 2);
       const preview = document.getElementById('preview');
@@ -796,6 +828,8 @@ async function waitForSlide(rendered, index, cycle) {
   const durationMs = rendered[index].durationSeconds * 1000;
 
   while (true) {
+    if (appState.plex.active) return { completed: false, plexActive: true };
+
     const requestedIndex = consumeSlideRequest(rendered, index);
     if (requestedIndex !== null) return { completed: false, requestedIndex };
 
@@ -897,6 +931,7 @@ async function runOnce(options, cycle = 1) {
     }
     appState.phase = "live";
     const result = await waitForSlide(slides, index, cycle);
+    if (result.plexActive) return false;
     if (!result.completed && result.requestedIndex !== undefined) {
       index = result.requestedIndex;
       continue;
@@ -911,6 +946,12 @@ async function runOnce(options, cycle = 1) {
 async function runLoop(options) {
   let cycle = 1;
   while (true) {
+    if (appState.plex.active) {
+      appState.phase = "plex";
+      await sleep(500);
+      continue;
+    }
+
     if (!appState.enabled) {
       appState.phase = "disabled";
       appState.remainingSeconds = null;
@@ -925,8 +966,65 @@ async function runLoop(options) {
   }
 }
 
+async function monitorPlex(options, plexConfig) {
+  if (!plexConfig.enabled) return;
+
+  appState.plex = inactivePlexStatus(true);
+  let activeKey = null;
+  let missedPolls = 0;
+
+  while (!shutdownStarted) {
+    try {
+      const match = await findPlexPlayback(plexConfig);
+      if (match?.error) {
+        appState.plex = inactivePlexStatus(true, match.error);
+      } else if (match) {
+        missedPolls = 0;
+        appState.plex = plexStatusFromMatch(match);
+
+        if (match.key !== activeKey) {
+          const artworkPath = await renderPlexArtwork(match);
+          await uploadImage(options.host, artworkPath, plexMetadata(match, options));
+          activeKey = match.key;
+          appState.current = {
+            id: "plex",
+            title: match.title,
+            path: artworkPath
+          };
+          appState.next = null;
+          appState.remainingSeconds = null;
+          appState.lastUploadAt = new Date().toISOString();
+          appState.phase = "plex";
+          if (!process.stdout.isTTY) {
+            console.log(`Uploaded Plex artwork: ${match.title}`);
+          }
+        }
+      } else if (activeKey) {
+        missedPolls += 1;
+        if (missedPolls >= 2) {
+          activeKey = null;
+          missedPolls = 0;
+          appState.plex = inactivePlexStatus(true);
+          appState.phase = "live";
+        }
+      } else {
+        appState.plex = inactivePlexStatus(true);
+      }
+    } catch (error) {
+      appState.plex = inactivePlexStatus(
+        true,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+
+    await sleep(plexConfig.pollSeconds * 1000);
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const plexConfig = getPlexConfig();
+  appState.plex = inactivePlexStatus(plexConfig.enabled);
 
   if (options.command === "build") {
     const rendered = await buildSlides(options);
@@ -944,6 +1042,7 @@ async function main() {
   setupShutdownHandlers(options);
   setupTui(options);
   startWebServer(options);
+  monitorPlex(options, plexConfig);
 
   try {
     if (options.command === "once") {
