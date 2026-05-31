@@ -20,6 +20,7 @@ import { slideRegistry } from "./slides/definitions/index.js";
 
 const term = terminalKit.terminal;
 const ANSI_RESET = "\x1b[0m";
+const CLEANUP_FETCH_TIMEOUT_MS = 4 * 1000;
 let tuiActive = false;
 let tuiRestored = false;
 let shutdownStarted = false;
@@ -35,6 +36,7 @@ const appState = {
   issues: [],
   lastUploadAt: null,
   lastError: null,
+  requestedSlideId: null,
   slides: []
 };
 
@@ -278,7 +280,8 @@ async function uploadSlide(host, renderedSlide, options) {
 
 async function removeLocalImage(host) {
   const response = await fetch(`http://${host}/image`, {
-    method: "DELETE"
+    method: "DELETE",
+    signal: AbortSignal.timeout(CLEANUP_FETCH_TIMEOUT_MS)
   });
 
   if (!response.ok) {
@@ -336,14 +339,17 @@ function webPage() {
     header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     h1 { font-size: 22px; margin: 0; font-weight: 650; }
     button { border: 1px solid #37425c; background: #121726; color: #e8f0ff; border-radius: 6px; padding: 10px 14px; font: inherit; cursor: pointer; }
+    select { border: 1px solid #37425c; background: #121726; color: #e8f0ff; border-radius: 6px; padding: 10px 12px; font: inherit; min-width: 190px; }
     button.enabled { background: #14351f; border-color: #5fe88b; }
     button.disabled { background: #3a1820; border-color: #ff548b; }
+    button:disabled, select:disabled { opacity: .45; cursor: not-allowed; }
     section { border: 1px solid #222a3c; border-radius: 8px; padding: 16px; background: #0f1320; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
     .label { color: #91a0b9; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
     .value { font-size: 18px; margin-top: 4px; overflow-wrap: anywhere; }
     .preview { image-rendering: pixelated; width: 256px; height: 256px; border: 1px solid #222a3c; background: #05060d; }
     .row { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; }
+    .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
     .issues { color: #ffdd5c; }
     pre { margin: 0; white-space: pre-wrap; color: #91a0b9; }
   </style>
@@ -366,6 +372,13 @@ function webPage() {
       </div>
     </section>
     <section>
+      <div class="label">Controls</div>
+      <div class="controls">
+        <button id="nextSlide">Next Slide</button>
+        <select id="slideSelect" aria-label="Slide"></select>
+      </div>
+    </section>
+    <section>
       <div class="label">API / Errors</div>
       <div id="issues" class="value issues"></div>
     </section>
@@ -384,6 +397,41 @@ function webPage() {
       await refresh();
     }
 
+    async function nextSlide() {
+      await fetch('/api/slides/next', { method: 'POST' });
+      await refresh();
+    }
+
+    async function jumpToSlide(id) {
+      await fetch('/api/slides/jump', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      await refresh();
+    }
+
+    function renderSlideOptions(status) {
+      const select = document.getElementById('slideSelect');
+      const slidesKey = status.slides.map((slide) => slide.id + ':' + slide.title).join('|');
+      if (select.dataset.slidesKey !== slidesKey) {
+        select.dataset.slidesKey = slidesKey;
+        select.replaceChildren();
+        for (const slide of status.slides) {
+          const option = document.createElement('option');
+          option.value = slide.id;
+          option.textContent = slide.title;
+          select.appendChild(option);
+        }
+      }
+
+      if (document.activeElement !== select) {
+        select.value = status.requestedSlideId ?? status.current?.id ?? status.slides[0]?.id ?? '';
+      }
+      select.disabled = !status.enabled || status.phase === 'starting' || !status.slides.length;
+      select.onchange = () => jumpToSlide(select.value);
+    }
+
     async function refresh() {
       const response = await fetch('/api/status', { cache: 'no-store' });
       const status = await response.json();
@@ -391,6 +439,10 @@ function webPage() {
       toggle.textContent = status.enabled ? 'Disable Loop' : 'Enable Loop';
       toggle.className = status.enabled ? 'enabled' : 'disabled';
       toggle.onclick = () => setEnabled(!status.enabled);
+      const nextButton = document.getElementById('nextSlide');
+      nextButton.disabled = !status.enabled || !status.current || !status.slides.length;
+      nextButton.onclick = nextSlide;
+      renderSlideOptions(status);
       document.getElementById('phase').textContent = status.phase;
       document.getElementById('current').textContent = status.current?.title ?? '-';
       document.getElementById('next').textContent = status.next?.title ?? '-';
@@ -435,12 +487,37 @@ function startWebServer(options) {
     appState.enabled = Boolean(body.enabled);
     appState.phase = appState.enabled ? "enabled" : "disabled";
     appState.lastError = null;
+    appState.requestedSlideId = null;
     if (!appState.enabled) {
       await removeLocalImage(options.host);
       appState.current = null;
       appState.next = null;
       appState.remainingSeconds = null;
     }
+    return context.json(statusPayload(options));
+  });
+
+  app.post("/api/slides/next", (context) => {
+    if (!appState.slides.length) {
+      return context.json({ error: "No slides have been rendered yet" }, 409);
+    }
+
+    const currentIndex = appState.slides.findIndex((slide) => slide.id === appState.current?.id);
+    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % appState.slides.length;
+    appState.requestedSlideId = appState.slides[nextIndex].id;
+    appState.lastError = null;
+    return context.json(statusPayload(options));
+  });
+
+  app.post("/api/slides/jump", async (context) => {
+    const body = await context.req.json().catch(() => ({}));
+    const requestedSlideId = String(body.id ?? "");
+    if (!appState.slides.some((slide) => slide.id === requestedSlideId)) {
+      return context.json({ error: `Unknown slide: ${requestedSlideId}` }, 404);
+    }
+
+    appState.requestedSlideId = requestedSlideId;
+    appState.lastError = null;
     return context.json(statusPayload(options));
   });
 
@@ -487,6 +564,16 @@ function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function consumeSlideRequest(slides, currentIndex) {
+  if (!appState.requestedSlideId) return null;
+
+  const requestedIndex = slides.findIndex((slide) => slide.slide.id === appState.requestedSlideId);
+  appState.requestedSlideId = null;
+
+  if (requestedIndex === -1 || requestedIndex === currentIndex) return null;
+  return requestedIndex;
 }
 
 function terminalColor([red, green, blue]) {
@@ -602,12 +689,15 @@ async function waitForSlide(rendered, index, cycle) {
   const durationMs = rendered[index].durationSeconds * 1000;
 
   while (true) {
+    const requestedIndex = consumeSlideRequest(rendered, index);
+    if (requestedIndex !== null) return { completed: false, requestedIndex };
+
     const elapsed = Date.now() - started;
     const remainingMs = Math.max(0, durationMs - elapsed);
     appState.remainingSeconds = remainingMs / 1000;
     renderTui(rendered, index, remainingMs / 1000, "Live", cycle);
-    if (!appState.enabled) return false;
-    if (remainingMs === 0) return true;
+    if (!appState.enabled) return { completed: false };
+    if (remainingMs === 0) return { completed: true };
     await sleep(Math.min(250, remainingMs));
   }
 }
@@ -667,8 +757,14 @@ async function runOnce(options, cycle = 1) {
     renderedSeconds: slide.renderedSeconds
   }));
 
-  for (let index = 0; index < slides.length; index += 1) {
+  let index = 0;
+  while (index < slides.length) {
     if (!appState.enabled) return false;
+    const requestedIndex = consumeSlideRequest(slides, index);
+    if (requestedIndex !== null) {
+      index = requestedIndex;
+    }
+
     const renderedSlide = slides[index];
     const nextSlide = slides[(index + 1) % slides.length];
     appState.phase = "uploading";
@@ -693,8 +789,13 @@ async function runOnce(options, cycle = 1) {
       console.log(`Uploaded ${renderedSlide.slide.id}`);
     }
     appState.phase = "live";
-    const completed = await waitForSlide(slides, index, cycle);
-    if (!completed) return false;
+    const result = await waitForSlide(slides, index, cycle);
+    if (!result.completed && result.requestedIndex !== undefined) {
+      index = result.requestedIndex;
+      continue;
+    }
+    if (!result.completed) return false;
+    index += 1;
   }
 
   return true;

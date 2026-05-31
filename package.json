@@ -11,7 +11,7 @@
     "dashboard:loop": "node tuneshine-dashboard.js loop",
     "docker:start": "sh scripts/docker-start.sh",
     "docker:logs": "docker compose logs -f",
-    "docker:stop": "docker compose down",
+    "docker:stop": "sh scripts/docker-stop.sh",
     "docker:update": "sh scripts/update.sh"
   },
   "dependencies": {

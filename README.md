@@ -123,7 +123,7 @@ Update after pushing new code:
 Stop it:
 
 ```bash
-docker compose down
+npm run docker:stop
 ```
 
 The compose file mounts:

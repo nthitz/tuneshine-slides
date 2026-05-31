@@ -13,6 +13,21 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+docker_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
+    sudo docker compose "$@"
+    return
+  fi
+
+  echo "docker compose is not available for this user, with or without sudo." >&2
+  exit 1
+}
+
 if [ ! -f compose.yaml ] && [ ! -f docker-compose.yml ]; then
   echo "No compose.yaml or docker-compose.yml found in $(pwd)" >&2
   exit 1
@@ -37,13 +52,7 @@ else
 fi
 
 echo "Rebuilding and recreating Docker service..."
-if docker compose version >/dev/null 2>&1; then
-  docker compose up -d --build --force-recreate
-else
-  echo "docker compose is not available for this user." >&2
-  echo "Try: sudo docker compose up -d --build --force-recreate" >&2
-  exit 1
-fi
+docker_compose up -d --build --force-recreate
 
 echo "Update complete."
 sh scripts/print-web-url.sh

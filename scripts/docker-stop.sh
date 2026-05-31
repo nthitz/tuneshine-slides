@@ -28,8 +28,4 @@ if [ ! -f compose.yaml ] && [ ! -f docker-compose.yml ]; then
   exit 1
 fi
 
-mkdir -p .cache slides gallery
-
-docker_compose up -d --build
-
-sh scripts/print-web-url.sh
+docker_compose down --timeout 10
