@@ -44,12 +44,12 @@ they fall back to plain upload logs.
 Change timing:
 
 ```bash
-npm run dashboard:loop -- --seconds 15 --dvd-seconds 15 --upload-delay 0.5 --loop-proof-delay 5
+npm run dashboard:loop -- --seconds 15 --dvd-seconds 15 --upload-delay 1 --loop-proof-delay 5
 ```
 
-`--upload-delay` adds a small cushion to each generated WebP without changing the
-slide cadence. For example, a 15 second slide with `--upload-delay 0.5` renders
-as a 15.5 second animation, but the uploader still starts the next slide after
+`--upload-delay` adds a cushion to each generated WebP without changing the
+slide cadence. For example, a 15 second slide with `--upload-delay 1` renders
+as a 16 second animation, but the uploader still starts the next slide after
 15 seconds so the current animation does not visibly restart during upload. On
 slides with a duration bar, the bar reaches 0 at the cadence time and stays empty
 during the buffer.
@@ -70,7 +70,7 @@ cp .env.example .env
 - `SLIDE_SECONDS`: default duration for normal slides.
 - `DVD_SLIDE_SECONDS`: duration for the DVD slide.
 - `GALLERY_DIR`: optional folder of images for the gallery slide. Images are center-cropped to square and resized to 64x64.
-- `UPLOAD_DELAY_SECONDS`: extra animation cushion rendered into each WebP. Defaults to `0.5`.
+- `UPLOAD_DELAY_SECONDS`: extra animation cushion rendered into each WebP. Defaults to `1`.
 - `LOOP_PROOF_DELAY_SECONDS`: extra cushion for slides that set `loopProof: true`. Defaults to `5`.
 - `DEV_MODE`: set to `true` to upload with `overridable: false`, useful for testing while music is playing. On exit, dev mode sends `DELETE /image` to remove the local image.
 - `WEB_PORT`: web status/control UI port. Defaults to `3000`.
